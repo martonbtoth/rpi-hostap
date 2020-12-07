@@ -1,0 +1,15 @@
+version: '3.4'
+services:
+  hostap:
+    build: .
+    container_name: hostap
+    restart: always
+    network_mode: host
+    privileged: true
+    environment:
+      INTERFACE: wlan0
+      CHANNEL: 6
+      SSID: StayInWifi
+      AP_ADDR: 192.168.254.1
+      SUBNET: 192.168.254.0
+
