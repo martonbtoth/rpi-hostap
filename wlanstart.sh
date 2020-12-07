@@ -22,6 +22,7 @@ true ${SSID:=raspberry}
 true ${CHANNEL:=11}
 true ${WPA_PASSPHRASE:=passw0rd}
 true ${HW_MODE:=g}
+true ${OUTGOINGS:=eth0}
 
 if [ ! -f "/etc/hostapd.conf" ] ; then
     cat > "/etc/hostapd.conf" <<EOF
@@ -78,32 +79,35 @@ if [ "${OUTGOINGS}" ] ; then
    for int in ${ints}
    do
       echo "Setting iptables for outgoing traffics on ${int}..."
+      
+      nft list table nat | grep "ip saddr ${SUBNET}/24 oif int masquerade"
+      if [ $? -eq 0 ]; then
+         echo NAT rule missing, adding...
+         nft insert rule nat POSTROUTING ip saddr ${SUBNET}/24 oif ${int} masquerade
+      fi
+      
 
-      iptables -t nat -D POSTROUTING -s ${SUBNET}/24 -o ${int} -j MASQUERADE > /dev/null 2>&1 || true
-      iptables -t nat -A POSTROUTING -s ${SUBNET}/24 -o ${int} -j MASQUERADE
+      nft list table filter | grep "oifname ${int} accept"
+      if [ $? -eq 0 ]; then
+         echo FORWARD output rule missing, adding...
+         nft insert rule filter FORWARD oifname ${int} accept
+      fi
 
-      iptables -D FORWARD -i ${int} -o ${INTERFACE} -m state --state RELATED,ESTABLISHED -j ACCEPT > /dev/null 2>&1 || true
-      iptables -A FORWARD -i ${int} -o ${INTERFACE} -m state --state RELATED,ESTABLISHED -j ACCEPT
-
-      iptables -D FORWARD -i ${INTERFACE} -o ${int} -j ACCEPT > /dev/null 2>&1 || true
-      iptables -A FORWARD -i ${INTERFACE} -o ${int} -j ACCEPT
+      
+      nft list table filter | grep "iifname ${int} ct state related, established accept"
+      if [ $? -eq 0 ]; then
+         echo FORWARD input rule missing, adding...
+         nft insert rule filter FORWARD iifname ${int} ct state related, established accept
+      fi
+      
    done
 else
-   echo "Setting iptables for outgoing traffics on all interfaces..."
-
-   iptables -t nat -D POSTROUTING -s ${SUBNET}/24 -j MASQUERADE > /dev/null 2>&1 || true
-   iptables -t nat -A POSTROUTING -s ${SUBNET}/24 -j MASQUERADE
-
-   iptables -D FORWARD -o ${INTERFACE} -m state --state RELATED,ESTABLISHED -j ACCEPT > /dev/null 2>&1 || true
-   iptables -A FORWARD -o ${INTERFACE} -m state --state RELATED,ESTABLISHED -j ACCEPT
-
-   iptables -D FORWARD -i ${INTERFACE} -j ACCEPT > /dev/null 2>&1 || true
-   iptables -A FORWARD -i ${INTERFACE} -j ACCEPT
+  echo "Outgoing rules are disabled"
 fi
 
 echo "Configuring DHCP server .."
 
-cat > "/etc/dhcpd.conf" <<EOF
+cat > "/etc/dhcp/dhcpd.conf" <<EOF
 option domain-name-servers ${PRI_DNS}, ${SEC_DNS};
 option subnet-mask 255.255.255.0;
 option routers ${AP_ADDR};
